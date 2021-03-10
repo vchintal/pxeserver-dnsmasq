@@ -1,0 +1,122 @@
+---
+- hosts: localhost
+  collections: 
+    - community.general
+  tasks:
+    - name: Create a folder to hold the ISO extract
+      file:
+        state: directory 
+        path: "{{ iso_dest_path }}"
+    - name: Unzip the ISO in the /tmp folder
+      iso_extract: 
+        image: "{{ iso_src_path }}"
+        dest: "{{ iso_dest_path }}"
+        executable: /usr/bin/7z
+        files: 
+          - isolinux/vmlinuz
+          - isolinux/initrd.img
+          - isolinux/ldlinux.c32
+          - isolinux/libcom32.c32
+          - isolinux/libutil.c32
+          - isolinux/vesamenu.c32
+          - EFI/BOOT/grubx64.efi
+          - EFI/BOOT/grub.cfg
+- hosts: pxeserver
+  vars:
+    ansible_become_pass: blah123!
+  collections: 
+    - ansible.posix
+  tasks:
+    - name: Install necessary packages
+      dnf:
+        name:
+          - dnsmasq
+          - tftp-server   # Only to create /var/lib/tftpboot folder
+          - syslinux-tftpboot
+          - httpd
+          - rsync
+        state: present
+      become: true
+    - name: Create the necessary folders
+      file:
+        path: "{{ item }}"
+        owner: dnsmasq
+        group: dnsmasq 
+        mode: 01777
+        recurse: true
+        state: directory
+      loop:
+        - "{{ dnsmasq.tftp_root }}/bios/{{ linux_nick }}"
+        - "{{ dnsmasq.tftp_root }}/bios/pxelinux.cfg"
+        - "{{ mount_path }}"
+      become: true
+    - name: Copy the boot files
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        remote_src: "{{ item.remote_src }}"
+        owner: dnsmasq
+        group: dnsmasq
+        mode: 01777
+      loop:
+        - { src: "{{ iso_dest_path }}/ldlinux.c32", dest: "{{ dnsmasq.tftp_root }}/bios", remote_src: false }
+        - { src: "{{ iso_dest_path }}/libcom32.c32", dest: "{{ dnsmasq.tftp_root }}/bios", remote_src: false }
+        - { src: "{{ iso_dest_path }}/libutil.c32", dest: "{{ dnsmasq.tftp_root }}/bios", remote_src: false }
+        - { src: "{{ iso_dest_path }}/vesamenu.c32", dest: "{{ dnsmasq.tftp_root }}/bios", remote_src: false }
+        - { src: "{{ iso_dest_path }}/initrd.img", dest: "{{ dnsmasq.tftp_root }}/bios/{{ linux_nick }}", remote_src: false }
+        - { src: "{{ iso_dest_path }}/vmlinuz", dest: "{{ dnsmasq.tftp_root }}/bios/{{ linux_nick }}", remote_src: false }
+        - { src: "{{ iso_dest_path }}/grubx64.efi", dest: "{{ dnsmasq.tftp_root }}", remote_src: false }
+        - { src: "/tftpboot/pxelinux.0", dest: "{{ dnsmasq.tftp_root }}/bios", remote_src: true }
+      become: true
+    - name: Copy the dnsmasq.conf files
+      template:
+        src: default
+        dest: "{{ dnsmasq.tftp_root }}/bios/pxelinux.cfg"
+      become: true
+    - name: Copy the dnsmasq and grub.cfg files
+      template:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+      loop:
+        - { src: "dnsmasq.conf", dest: "/etc/dnsmasq.conf" }
+        - { src: "grub.cfg", dest: "{{ dnsmasq.tftp_root }}" }
+      become: true
+    - name: Copy the .iso file 
+      synchronize:
+        src: "{{ iso_src_path }}"
+        dest: "/tmp/{{ iso_file_name }}"
+    - name: Mount the ISO 
+      mount:
+        boot: false
+        fstype: iso9660
+        src: "/tmp/{{ iso_file_name }}"
+        path: "{{ mount_path }}"
+        state: mounted
+      become: true
+    - name: Open up the firewall ports
+      firewalld:
+        service: "{{ item }}"
+        state: enabled
+        permanent: true
+        immediate: true
+      loop:
+        - tftp
+        - dns
+        - dhcp 
+        - http
+        - https
+      become: true
+    - name: Start up the services 
+      service:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - httpd
+        - dnsmasq
+      become: true
+    - name: Create a symbolic link to the mounted iso contents
+      file:
+        state: link
+        src: "{{ mount_path }}"
+        path: "/var/www/html/{{ linux_nick }}"
+      become: true

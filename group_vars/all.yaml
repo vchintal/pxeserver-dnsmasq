@@ -1,0 +1,22 @@
+linux_nick: rhel8
+iso_file_name: rhel-8.3-x86_64-dvd.iso
+iso_src_path: "/home/vchintal/ISOs/{{ iso_file_name }}"
+iso_dest_path: "/tmp/{{ linux_nick }}"
+mount_path: "/mnt/{{ linux_nick }}"
+server_ip_addr: 192.168.86.180
+repo_url: "http://{{ server_ip_addr }}/{{ linux_nick }}" 
+dnsmasq:
+  interface: ens192,lo
+  domain: launchpad.home
+  dhcp_range: 192.168.86.0
+  dhcp_hosts:
+    - { mac_addr: "00:50:56:a8:39:16", ip_addr: "192.168.86.191"}
+  dhcp_options:
+    - "3,192.168.86.1"
+  tftp_root: "/var/lib/tftpboot"
+  dhcp_matches:
+    - "set:bios,option:client-arch,0"
+    - "set:uefi,option:client-arch,7"
+  dhcp_boots:
+    - "tag:bios,bios/pxelinux.0"
+    - "tag:uefi,grubx64.efi"

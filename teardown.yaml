@@ -1,0 +1,9 @@
+---
+- hosts: localhost
+  collections: 
+    - community.general
+  tasks:
+    - name: Remove the temporary directory
+      file:
+        state: absent 
+        path: "{{ iso_dest_path }}"
